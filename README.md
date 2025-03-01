@@ -127,6 +127,58 @@ async function main() {
 main().catch(console.error);
 ```
 
+## Deployment
+
+### Using Docker Compose
+
+You can easily run the server using Docker Compose:
+
+```bash
+docker-compose up -d
+```
+
+For development with hot-reload:
+
+```bash
+docker-compose run dev
+```
+
+### Using Kamal
+
+This project includes configuration for deployment using [Kamal](https://kamal-deploy.org/), which simplifies Docker-based deployments.
+
+1. Install Kamal:
+   ```bash
+   gem install kamal
+   ```
+
+2. Set up your environment variables in a `.env` file:
+   ```
+   KAMAL_SERVER=your-server-ip
+   BROWSER_HOST=browser.yourdomain.com
+   AUTH_TOKEN=your-secret-token
+   GITHUB_USERNAME=your-github-username
+   GITHUB_TOKEN=your-github-token
+   ```
+
+3. Deploy the application:
+   ```bash
+   kamal setup
+   kamal deploy
+   ```
+
+4. To deploy the Playwright server as an accessory for other applications:
+   ```bash
+   kamal accessory boot playwright-browser
+   ```
+
+5. Useful commands:
+   ```bash
+   kamal app logs                # View application logs
+   kamal app restart             # Restart the application
+   kamal accessory status        # Check accessory status
+   ```
+
 ## Project Structure
 
 ```

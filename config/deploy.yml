@@ -1,0 +1,81 @@
+# Name of your application. Used to uniquely configure containers.
+service: playwright-browser-server
+
+# Name of the container image.
+image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/playwright-browser-server:latest
+
+# Deploy to these servers.
+servers:
+  web:
+    - ${KAMAL_SERVER}
+
+# Credentials for your image host.
+registry:
+  server: ghcr.io
+  username:
+    - GITHUB_USERNAME
+  password:
+    - GITHUB_TOKEN
+
+# Proxy configuration
+proxy:
+  ssl: true
+  host: ${BROWSER_HOST}
+  port: 3000
+
+# Environment variables
+env:
+  clear:
+    PORT: 3000
+    AUTO_CLOSE_TIMEOUT: 60000
+    LOG_LEVEL: info
+  secret:
+    - AUTH_TOKEN
+
+# Healthcheck configuration
+healthcheck:
+  path: /health
+  interval: 10
+  timeout: 5
+
+# Use accessory services (Redis for caching if needed)
+accessories:
+  # Example Redis accessory (uncomment if needed)
+  # redis:
+  #   image: redis:latest
+  #   host: ${KAMAL_SERVER}
+  #   port: 6379
+  #   cmd: "redis-server"
+  #   volumes:
+  #     - /var/lib/redis:/data
+  #   options:
+  #     restart: always
+  
+  # Playwright-Browser example as an accessory for other services
+  playwright-browser:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/playwright-browser-server:latest
+    host: ${KAMAL_SERVER}
+    port: "3000:3000"
+    env:
+      clear:
+        PORT: 3000
+        AUTO_CLOSE_TIMEOUT: 60000
+        LOG_LEVEL: info
+      secret:
+        - AUTH_TOKEN
+    options:
+      restart: always
+      memory: 2g
+      cpus: 2
+    healthcheck:
+      test: ["CMD", "node", "dist/healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+# Aliases for common commands
+aliases:
+  logs: app logs -f
+  status: app status
+  health: accessory status playwright-browser
