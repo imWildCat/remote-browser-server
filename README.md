@@ -95,6 +95,20 @@ The server supports three browser types:
 
 Each browser type has its own endpoint, and you can connect to any of them using the appropriate Playwright API.
 
+## Connection Protocol
+
+The server directly proxies WebSocket connections to the Playwright browser servers. Authentication is performed via a token in the URL query parameter.
+
+Clients can connect to the server using the standard Playwright connect method:
+
+```javascript
+const browser = await playwright.chromium.connect(
+  `ws://your-host:3000/chromium/playwright?token=your-secret-token`
+);
+```
+
+Each browser type has its own endpoint, and you can connect to any of them using the appropriate Playwright API.
+
 ## Client Example
 
 Here's a simple example of how to use the remote browser server with Playwright:

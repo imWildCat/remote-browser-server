@@ -2,12 +2,18 @@ import { chromium, firefox, webkit, BrowserServer } from 'playwright';
 import http from 'http';
 import url from 'url';
 import crypto from 'crypto';
+import { WebSocketServer } from 'ws';
 
 // Define session interface
 interface BrowserSession {
   id: string;
   browserServer: BrowserServer;
   lastUsed: number;
+}
+
+// Access internal WebSocket server on BrowserServer
+interface BrowserServerWithWebSocket extends BrowserServer {
+  _wsServer: WebSocketServer;
 }
 
 // Configuration from environment
@@ -81,7 +87,7 @@ async function getBrowserServer(browserType: 'chromium' | 'firefox' | 'webkit'):
 }
 
 // Create HTTP server
-const server = http.createServer(async (req, res) => {
+const server = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url || '', true);
   
   // Health check endpoint
@@ -94,45 +100,72 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   
-  // Handle browser requests
+  // Handle all other requests
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end('Not Found');
+});
+
+// Add WebSocket server handling
+server.on('upgrade', async (req, socket, head) => {
+  const parsedUrl = url.parse(req.url || '', true);
+  
+  // Check if this is a browser request
   if (parsedUrl.pathname?.match(/^\/(chromium|firefox|webkit)\/playwright$/)) {
     const browserType = parsedUrl.pathname.split('/')[1] as 'chromium' | 'firefox' | 'webkit';
     const token = parsedUrl.query.token as string;
     
     // Verify token
     if (token !== REMOTE_BROWSER_SERVER_AUTH_TOKEN) {
-      log('warn', 'Unauthorized access attempt', { 
+      log('warn', 'Unauthorized WebSocket upgrade attempt', { 
         ip: req.socket.remoteAddress,
         browserType
       });
       
-      res.writeHead(401, { 'Content-Type': 'text/plain' });
-      res.end('Unauthorized');
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
       return;
     }
     
     try {
+      log('debug', `Received WebSocket upgrade request for ${browserType}`, {
+        headers: req.headers
+      });
+      
       // Get or create browser server for the specified type
       const browserServer = await getBrowserServer(browserType);
       
-      // Handle the request via Playwright's built-in HTTP handling
-      // This is what allows direct connection using playwright.chromium.connect(url)
-      await browserServer.wsEndpoint();
+      // Forward the WebSocket connection directly
+      // This is what makes the direct connection work
+      log('debug', `WebSocket connection established for ${browserType}`);
       
-      // The request will be handled by the browser server's WebSocket handler
-      // We don't need to do anything else here
+      // Let the client connect directly to the browser's WebSocket endpoint
+      const wsEndpoint = browserServer.wsEndpoint();
+      const wsUrl = new URL(wsEndpoint);
+      
+      // We need to create a direct WebSocket connection to forward the client
+      const browserWsPath = wsUrl.pathname + (wsUrl.search || '');
+      
+      // Rewrite the URL to match the browser server's expected format
+      req.url = browserWsPath;
+      
+      // Forward the WebSocket upgrade request to the browser's WebSocket server
+      const browserServerWithWs = browserServer as unknown as BrowserServerWithWebSocket;
+      browserServerWithWs._wsServer.handleUpgrade(req, socket, head, (ws) => {
+        browserServerWithWs._wsServer.emit('connection', ws, req);
+      });
+      
     } catch (error) {
-      log('error', `Error creating browser server for ${browserType}`, { error });
-      res.writeHead(500, { 'Content-Type': 'text/plain' });
-      res.end('Internal Server Error');
+      log('error', `Error handling WebSocket upgrade for ${browserType}`, { error });
+      socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+      socket.destroy();
     }
     
     return;
   }
-
-  // Default response for unhandled routes
-  res.writeHead(404, { 'Content-Type': 'text/plain' });
-  res.end('Not Found');
+  
+  // Unhandled WebSocket upgrade
+  socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+  socket.destroy();
 });
 
 // Auto-close inactive browser sessions
