@@ -17,7 +17,7 @@ RUN chmod +x dist/healthcheck.js
 
 # Environment variables for configuration
 ENV PORT=3000
-ENV AUTH_TOKEN=your-secret-token
+ENV REMOTE_BROWSER_SERVER_AUTH_TOKEN=your-secret-token
 ENV AUTO_CLOSE_TIMEOUT=60000
 ENV LOG_LEVEL=info
 

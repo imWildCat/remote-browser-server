@@ -57,7 +57,7 @@ A token-authenticated Playwright server that allows remote control of browsers v
 ### Environment Variables
 
 - `PORT`: WebSocket server port (default: 3000)
-- `AUTH_TOKEN`: Authentication token for connecting clients (default: "your-secret-token")
+- `REMOTE_BROWSER_SERVER_AUTH_TOKEN`: Authentication token for connecting clients (default: "your-secret-token")
 - `AUTO_CLOSE_TIMEOUT`: Time in milliseconds to auto-close inactive browsers (default: 60000)
 - `LOG_LEVEL`: Logging level (options: "debug", "info", "warn", "error", default: "info")
 
@@ -156,7 +156,7 @@ This project includes configuration for deployment using [Kamal](https://kamal-d
    ```
    KAMAL_SERVER=your-server-ip
    BROWSER_HOST=browser.yourdomain.com
-   AUTH_TOKEN=your-secret-token
+   REMOTE_BROWSER_SERVER_AUTH_TOKEN=your-secret-token
    GITHUB_USERNAME=your-github-username
    GITHUB_TOKEN=your-github-token
    ```
@@ -206,7 +206,7 @@ The workflow is triggered when:
 
 ## Security Considerations
 
-- Always change the default `AUTH_TOKEN` to a strong, unique value
+- Always change the default `REMOTE_BROWSER_SERVER_AUTH_TOKEN` to a strong, unique value
 - Consider running behind a reverse proxy with TLS for secure WebSocket connections (wss://)
 - Use network isolation in production environments
 - Implement rate limiting for authentication attempts

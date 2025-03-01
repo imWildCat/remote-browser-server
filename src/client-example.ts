@@ -2,14 +2,14 @@ import { chromium, firefox, webkit } from 'playwright';
 
 // Configuration
 const SERVER_URL = process.env.SERVER_URL || 'ws://localhost:3000';
-const AUTH_TOKEN = process.env.AUTH_TOKEN || 'your-secret-token';
+const REMOTE_BROWSER_SERVER_AUTH_TOKEN = process.env.REMOTE_BROWSER_SERVER_AUTH_TOKEN || 'your-secret-token';
 const BROWSER_TYPE = (process.env.BROWSER_TYPE || 'chromium') as 'chromium' | 'firefox' | 'webkit';
 
 async function main() {
   console.log(`Connecting to ${BROWSER_TYPE} at ${SERVER_URL}...`);
   
   // Direct connection to browser server with token in URL
-  const connectionUrl = `${SERVER_URL}/${BROWSER_TYPE}/playwright?token=${AUTH_TOKEN}`;
+  const connectionUrl = `${SERVER_URL}/${BROWSER_TYPE}/playwright?token=${REMOTE_BROWSER_SERVER_AUTH_TOKEN}`;
   console.log(`Connection URL: ${connectionUrl}`);
   
   // Choose the appropriate browser type

@@ -30,7 +30,7 @@ env:
     AUTO_CLOSE_TIMEOUT: 60000
     LOG_LEVEL: info
   secret:
-    - AUTH_TOKEN
+    - REMOTE_BROWSER_SERVER_AUTH_TOKEN
 
 # Healthcheck configuration
 healthcheck:
@@ -62,7 +62,7 @@ accessories:
         AUTO_CLOSE_TIMEOUT: 60000
         LOG_LEVEL: info
       secret:
-        - AUTH_TOKEN
+        - REMOTE_BROWSER_SERVER_AUTH_TOKEN
     options:
       restart: always
       memory: 2g

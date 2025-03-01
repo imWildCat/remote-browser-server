@@ -11,7 +11,7 @@ COPY src ./src
 
 # Environment variables for development
 ENV PORT=3000
-ENV AUTH_TOKEN=your-secret-token
+ENV REMOTE_BROWSER_SERVER_AUTH_TOKEN=your-secret-token
 ENV AUTO_CLOSE_TIMEOUT=60000
 ENV LOG_LEVEL=debug
 ENV NODE_ENV=development

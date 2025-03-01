@@ -19,7 +19,7 @@ docker rm playwright-server 2>/dev/null || true
 echo "Starting container..."
 docker run -d --name playwright-server \
   -p 3000:3000 \
-  -e AUTH_TOKEN=test-token \
+  -e REMOTE_BROWSER_SERVER_AUTH_TOKEN=test-token \
   -e LOG_LEVEL=debug \
   playwright-browser-server
 

@@ -9,7 +9,7 @@ services:
       - "3000:3000"
     environment:
       - PORT=3000
-      - AUTH_TOKEN=your-secret-token
+      - REMOTE_BROWSER_SERVER_AUTH_TOKEN=your-secret-token
       - AUTO_CLOSE_TIMEOUT=60000
       - LOG_LEVEL=info
     restart: unless-stopped
@@ -29,7 +29,7 @@ services:
       - "3000:3000"
     environment:
       - PORT=3000
-      - AUTH_TOKEN=your-secret-token
+      - REMOTE_BROWSER_SERVER_AUTH_TOKEN=your-secret-token
       - AUTO_CLOSE_TIMEOUT=60000
       - LOG_LEVEL=debug
     command: npm run dev

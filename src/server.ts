@@ -12,7 +12,7 @@ interface BrowserSession {
 
 // Configuration from environment
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-const AUTH_TOKEN = process.env.AUTH_TOKEN || 'your-secret-token';
+const REMOTE_BROWSER_SERVER_AUTH_TOKEN = process.env.REMOTE_BROWSER_SERVER_AUTH_TOKEN || 'your-secret-token';
 const AUTO_CLOSE_TIMEOUT = process.env.AUTO_CLOSE_TIMEOUT ? parseInt(process.env.AUTO_CLOSE_TIMEOUT) : 60000;
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 
@@ -100,7 +100,7 @@ const server = http.createServer(async (req, res) => {
     const token = parsedUrl.query.token as string;
     
     // Verify token
-    if (token !== AUTH_TOKEN) {
+    if (token !== REMOTE_BROWSER_SERVER_AUTH_TOKEN) {
       log('warn', 'Unauthorized access attempt', { 
         ip: req.socket.remoteAddress,
         browserType
@@ -170,9 +170,9 @@ async function closeSession(browserType: 'chromium' | 'firefox' | 'webkit'): Pro
 server.listen(PORT, () => {
   log('info', `Playwright browser server listening on port ${PORT}`);
   log('info', `Connect using:`);
-  log('info', `  - Chromium: playwright.chromium.connect("ws://your-host:${PORT}/chromium/playwright?token=${AUTH_TOKEN}")`);
-  log('info', `  - Firefox: playwright.firefox.connect("ws://your-host:${PORT}/firefox/playwright?token=${AUTH_TOKEN}")`);
-  log('info', `  - WebKit: playwright.webkit.connect("ws://your-host:${PORT}/webkit/playwright?token=${AUTH_TOKEN}")`);
+  log('info', `  - Chromium: playwright.chromium.connect("ws://your-host:${PORT}/chromium/playwright?token=${REMOTE_BROWSER_SERVER_AUTH_TOKEN}")`);
+  log('info', `  - Firefox: playwright.firefox.connect("ws://your-host:${PORT}/firefox/playwright?token=${REMOTE_BROWSER_SERVER_AUTH_TOKEN}")`);
+  log('info', `  - WebKit: playwright.webkit.connect("ws://your-host:${PORT}/webkit/playwright?token=${REMOTE_BROWSER_SERVER_AUTH_TOKEN}")`);
 });
 
 // Handle termination signals
