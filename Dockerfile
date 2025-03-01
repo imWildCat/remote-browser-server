@@ -3,7 +3,7 @@ FROM mcr.microsoft.com/playwright:v1.50.1-noble
 WORKDIR /app
 
 # Install Node.js dependencies
-COPY package.json tsconfig.json ./
+COPY package.json package-lock.json tsconfig.json ./
 RUN npm install
 
 # Copy TypeScript source code
