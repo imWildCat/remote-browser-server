@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  playwright-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - AUTH_TOKEN=your-secret-token
+      - AUTO_CLOSE_TIMEOUT=60000
+      - LOG_LEVEL=info
+    restart: unless-stopped
+    # For better performance, use host network mode on Linux
+    # network_mode: host
+  
+  # Development service for local development with hot-reload
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./src:/app/src
+      - ./package.json:/app/package.json
+      - ./tsconfig.json:/app/tsconfig.json
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - AUTH_TOKEN=your-secret-token
+      - AUTO_CLOSE_TIMEOUT=60000
+      - LOG_LEVEL=debug
+    command: npm run dev
+    restart: unless-stopped
