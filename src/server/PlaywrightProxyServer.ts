@@ -1,11 +1,14 @@
 import http from 'http';
 import url from 'url';
-import { WebSocketServer } from 'ws';
+import WebSocket from 'ws';
 import { BrowserServer } from 'playwright';
+import { URLSearchParams } from 'url';
 
-// Access internal WebSocket server on BrowserServer
-interface BrowserServerWithWebSocket extends BrowserServer {
-  _wsServer: WebSocketServer;
+// Interface for BrowserSession
+interface BrowserSession {
+  id: string;
+  browserServer: BrowserServer;
+  lastUsed: number;
 }
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -17,23 +20,12 @@ interface PlaywrightProxyConfig {
   autoCloseTimeout: number;
 }
 
-interface BrowserSession {
-  id: string;
-  browserServer: BrowserServer;
-  lastUsed: number;
-}
-
 type BrowserType = 'chromium' | 'firefox' | 'webkit';
 
 class PlaywrightProxyServer {
   private server: http.Server;
   private config: PlaywrightProxyConfig;
-  private activeSessions: Record<BrowserType, BrowserSession | undefined> = {
-    chromium: undefined,
-    firefox: undefined,
-    webkit: undefined
-  };
-  
+  private activeSessions: Record<BrowserType, BrowserSession | undefined>;
   private logLevels = {
     debug: 0,
     info: 1,
@@ -44,9 +36,11 @@ class PlaywrightProxyServer {
   constructor(
     config: PlaywrightProxyConfig,
     private getBrowserServer: (browserType: BrowserType) => Promise<BrowserServer>,
-    private closeSession: (browserType: BrowserType) => Promise<void>
+    private closeSession: (browserType: BrowserType) => Promise<void>,
+    activeSessions: Record<BrowserType, BrowserSession | undefined>
   ) {
     this.config = config;
+    this.activeSessions = activeSessions;
 
     // Create HTTP server
     this.server = http.createServer(this.handleHttpRequest.bind(this));
@@ -113,23 +107,69 @@ class PlaywrightProxyServer {
         // Get or create browser server for the specified type
         const browserServer = await this.getBrowserServer(browserType);
         
-        // Forward the WebSocket connection directly
-        this.log('debug', `WebSocket connection established for ${browserType}`);
-        
-        // Let the client connect directly to the browser's WebSocket endpoint
+        // Instead of trying to access the internal WebSocket server,
+        // we'll create our own WebSocket client and proxy the connection
         const wsEndpoint = browserServer.wsEndpoint();
-        const wsUrl = new URL(wsEndpoint);
+        this.log('debug', `Connecting to browser WebSocket endpoint: ${wsEndpoint}`);
         
-        // We need to create a direct WebSocket connection to forward the client
-        const browserWsPath = wsUrl.pathname + (wsUrl.search || '');
+        // Create a new WebSocket connection to the browser server
+        const browserWs = new WebSocket(wsEndpoint);
         
-        // Rewrite the URL to match the browser server's expected format
-        req.url = browserWsPath;
+        browserWs.on('open', () => {
+          this.log('debug', `Connected to browser WebSocket for ${browserType}`);
+          
+          // Create a WebSocket server to handle the client connection
+          const wss = new WebSocket.Server({ noServer: true });
+          
+          wss.on('connection', (ws) => {
+            this.log('debug', `Client WebSocket connected for ${browserType}`);
+            
+            // Forward messages from client to browser
+            ws.on('message', (message) => {
+              if (browserWs.readyState === WebSocket.OPEN) {
+                browserWs.send(message);
+              }
+            });
+            
+            // Forward messages from browser to client
+            browserWs.on('message', (message) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(message);
+              }
+            });
+            
+            // Handle client disconnect
+            ws.on('close', () => {
+              this.log('debug', `Client WebSocket closed for ${browserType}`);
+              browserWs.close();
+            });
+            
+            // Handle browser disconnect
+            browserWs.on('close', () => {
+              this.log('debug', `Browser WebSocket closed for ${browserType}`);
+              ws.close();
+            });
+            
+            // Handle errors
+            ws.on('error', (error) => {
+              this.log('error', `Client WebSocket error for ${browserType}`, { error });
+            });
+            
+            browserWs.on('error', (error) => {
+              this.log('error', `Browser WebSocket error for ${browserType}`, { error });
+            });
+          });
+          
+          // Upgrade the connection
+          wss.handleUpgrade(req, socket, head, (ws) => {
+            wss.emit('connection', ws);
+          });
+        });
         
-        // Forward the WebSocket upgrade request to the browser's WebSocket server
-        const browserServerWithWs = browserServer as unknown as BrowserServerWithWebSocket;
-        browserServerWithWs._wsServer.handleUpgrade(req, socket, head, (ws) => {
-          browserServerWithWs._wsServer.emit('connection', ws, req);
+        browserWs.on('error', (error) => {
+          this.log('error', `Failed to connect to browser WebSocket for ${browserType}`, { error });
+          socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+          socket.destroy();
         });
         
       } catch (error) {

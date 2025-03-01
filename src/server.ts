@@ -9,11 +9,11 @@ const AUTO_CLOSE_TIMEOUT = process.env.AUTO_CLOSE_TIMEOUT ? parseInt(process.env
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 
 // Active browser sessions by browser type
-const activeSessions: {
-  chromium?: BrowserSession;
-  firefox?: BrowserSession;
-  webkit?: BrowserSession;
-} = {};
+const activeSessions: Record<BrowserType, BrowserSession | undefined> = {
+  chromium: undefined,
+  firefox: undefined,
+  webkit: undefined
+};
 
 // Get or create a browser server for a specific browser type
 async function getBrowserServer(browserType: BrowserType): Promise<BrowserServer> {
@@ -79,7 +79,12 @@ const proxyConfig: PlaywrightProxyConfig = {
 };
 
 // Create and start the proxy server
-const proxyServer = new PlaywrightProxyServer(proxyConfig, getBrowserServer, closeSession);
+const proxyServer = new PlaywrightProxyServer(
+  proxyConfig, 
+  getBrowserServer, 
+  closeSession,
+  activeSessions
+);
 
 // Handle termination signals
 process.on('SIGINT', shutdown);
