@@ -1,247 +1,195 @@
-import { chromium, Browser, BrowserServer } from 'playwright';
-import WebSocket from 'ws';
+import { chromium, firefox, webkit, BrowserServer } from 'playwright';
 import http from 'http';
 import url from 'url';
 import crypto from 'crypto';
-import path from 'path';
-import fs from 'fs';
 
 // Define session interface
 interface BrowserSession {
-  browser: Browser;
+  id: string;
   browserServer: BrowserServer;
-  lastActivity: number;
-  timeoutId: NodeJS.Timeout;
+  lastUsed: number;
 }
 
-// Define message interface
-interface ClientMessage {
-  action: string;
-  [key: string]: any;
-}
-
-// Define server response interface
-interface ServerResponse {
-  status: string;
-  sessionId?: string;
-  wsEndpoint?: string;
-  message?: string;
-  [key: string]: any;
-}
-
-// Config - can be overridden with environment variables
+// Configuration from environment
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 const AUTH_TOKEN = process.env.AUTH_TOKEN || 'your-secret-token';
-const AUTO_CLOSE_TIMEOUT = process.env.AUTO_CLOSE_TIMEOUT ? parseInt(process.env.AUTO_CLOSE_TIMEOUT) : 60000; // 60 seconds
-const LOG_LEVEL = process.env.LOG_LEVEL || 'info'; // 'debug', 'info', 'warn', 'error'
+const AUTO_CLOSE_TIMEOUT = process.env.AUTO_CLOSE_TIMEOUT ? parseInt(process.env.AUTO_CLOSE_TIMEOUT) : 60000;
+const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 
-// Browser instances map: sessionId -> { browser, lastActivity, timeoutId }
-const browserSessions = new Map<string, BrowserSession>();
+// Active browser sessions by browser type
+const activeSessions: {
+  chromium?: BrowserSession;
+  firefox?: BrowserSession;
+  webkit?: BrowserSession;
+} = {};
 
-// Simple logging utility
-const logger = {
-  debug: (...args: any[]) => LOG_LEVEL === 'debug' && console.log(`[DEBUG] ${new Date().toISOString()}:`, ...args),
-  info: (...args: any[]) => ['debug', 'info'].includes(LOG_LEVEL) && console.log(`[INFO] ${new Date().toISOString()}:`, ...args),
-  warn: (...args: any[]) => ['debug', 'info', 'warn'].includes(LOG_LEVEL) && console.log(`[WARN] ${new Date().toISOString()}:`, ...args),
-  error: (...args: any[]) => console.error(`[ERROR] ${new Date().toISOString()}:`, ...args)
+// Logging levels
+const logLevels = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3
 };
 
-// Create HTTP server
-const server = http.createServer((req, res) => {
-  if (!req.url) {
-    res.writeHead(400);
-    res.end(JSON.stringify({ error: 'Invalid request' }));
-    return;
+// Logging function
+function log(level: keyof typeof logLevels, message: string, data?: any): void {
+  if (logLevels[level] >= logLevels[LOG_LEVEL as keyof typeof logLevels]) {
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${level.toUpperCase()}] ${timestamp}: ${message}`;
+    console.log(logMessage, data ? data : '');
+  }
+}
+
+// Get or create a browser server for a specific browser type
+async function getBrowserServer(browserType: 'chromium' | 'firefox' | 'webkit'): Promise<BrowserServer> {
+  // Return existing browser server if available
+  if (activeSessions[browserType]) {
+    activeSessions[browserType]!.lastUsed = Date.now();
+    return activeSessions[browserType]!.browserServer;
   }
 
-  const parsedUrl = url.parse(req.url, true);
+  // Launch a new browser server based on type
+  log('info', `Launching new ${browserType} browser server`);
+  
+  let browserServer: BrowserServer;
+  
+  switch(browserType) {
+    case 'firefox':
+      browserServer = await firefox.launchServer({
+        headless: true
+      });
+      break;
+    case 'webkit':
+      browserServer = await webkit.launchServer({
+        headless: true
+      });
+      break;
+    default:
+      browserServer = await chromium.launchServer({
+        headless: true
+      });
+  }
+  
+  // Store the browser server
+  activeSessions[browserType] = {
+    id: crypto.randomUUID(),
+    browserServer,
+    lastUsed: Date.now()
+  };
+  
+  return browserServer;
+}
+
+// Create HTTP server
+const server = http.createServer(async (req, res) => {
+  const parsedUrl = url.parse(req.url || '', true);
   
   // Health check endpoint
   if (parsedUrl.pathname === '/health') {
-    res.writeHead(200);
-    res.end(JSON.stringify({ status: 'ok', activeSessions: browserSessions.size }));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'ok',
+      activeSessions: Object.keys(activeSessions).length
+    }));
     return;
   }
   
-  // Default response for unhandled routes
-  res.writeHead(404);
-  res.end(JSON.stringify({ error: 'Not found' }));
-});
-
-// Create WebSocket server
-const wss = new WebSocket.Server({ server });
-
-// Handle new WebSocket connections
-wss.on('connection', async (ws, req) => {
-  if (!req.url) {
-    ws.close(1008, 'Invalid request');
-    return;
-  }
-
-  const parsedUrl = url.parse(req.url, true);
-  const token = parsedUrl.query.token as string;
-  
-  // Validate token
-  if (token !== AUTH_TOKEN) {
-    logger.warn('Unauthorized connection attempt with token:', token);
-    ws.close(1008, 'Unauthorized');
-    return;
-  }
-  
-  // Generate unique session ID
-  const sessionId = crypto.randomUUID();
-  logger.info(`New client connected: ${sessionId}`);
-  
-  // Setup message handling
-  ws.on('message', async (message: WebSocket.RawData) => {
-    try {
-      const data = JSON.parse(message.toString()) as ClientMessage;
-      logger.debug(`Received message from ${sessionId}:`, data);
+  // Handle browser requests
+  if (parsedUrl.pathname?.match(/^\/(chromium|firefox|webkit)\/playwright$/)) {
+    const browserType = parsedUrl.pathname.split('/')[1] as 'chromium' | 'firefox' | 'webkit';
+    const token = parsedUrl.query.token as string;
+    
+    // Verify token
+    if (token !== AUTH_TOKEN) {
+      log('warn', 'Unauthorized access attempt', { 
+        ip: req.socket.remoteAddress,
+        browserType
+      });
       
-      switch (data.action) {
-        case 'launch':
-          await handleLaunch(ws, sessionId, data);
-          break;
-        
-        case 'close':
-          await handleClose(ws, sessionId);
-          break;
-          
-        default:
-          sendError(ws, 'Unknown action');
-      }
-    } catch (error) {
-      logger.error('Error processing message:', error);
-      sendError(ws, `Error processing message: ${error instanceof Error ? error.message : String(error)}`);
+      res.writeHead(401, { 'Content-Type': 'text/plain' });
+      res.end('Unauthorized');
+      return;
     }
-  });
-  
-  // Handle client disconnect
-  ws.on('close', () => {
-    logger.info(`Client disconnected: ${sessionId}`);
-    cleanupSession(sessionId);
-  });
-  
-  // Send initial connection confirmation
-  send(ws, { status: 'connected', sessionId });
+    
+    try {
+      // Get or create browser server for the specified type
+      const browserServer = await getBrowserServer(browserType);
+      
+      // Handle the request via Playwright's built-in HTTP handling
+      // This is what allows direct connection using playwright.chromium.connect(url)
+      await browserServer.wsEndpoint();
+      
+      // The request will be handled by the browser server's WebSocket handler
+      // We don't need to do anything else here
+    } catch (error) {
+      log('error', `Error creating browser server for ${browserType}`, { error });
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end('Internal Server Error');
+    }
+    
+    return;
+  }
+
+  // Default response for unhandled routes
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end('Not Found');
 });
 
-// Handle browser launch request
-async function handleLaunch(ws: WebSocket, sessionId: string, data: ClientMessage): Promise<void> {
-  // Close existing browser if any
-  if (browserSessions.has(sessionId)) {
-    await cleanupSession(sessionId);
-  }
+// Auto-close inactive browser sessions
+setInterval(() => {
+  const now = Date.now();
   
-  try {
-    // Launch new browser
-    logger.info(`Launching browser for session ${sessionId}`);
-    const browser = await chromium.launch({
-      headless: true,
-      args: [
-        '--disable-dev-shm-usage',
-        '--no-sandbox',
-        '--disable-setuid-sandbox'
-      ]
-    });
-    
-    // Create a browser server
-    const browserServer = await chromium.launchServer({
-      headless: true,
-      args: [
-        '--disable-dev-shm-usage',
-        '--no-sandbox',
-        '--disable-setuid-sandbox'
-      ]
-    });
-    
-    const wsEndpoint = browserServer.wsEndpoint();
-    
-    // Store session info
-    const timeoutId = setTimeout(() => {
-      logger.info(`Auto-closing session ${sessionId} due to inactivity`);
-      cleanupSession(sessionId);
-      send(ws, { status: 'timeout', message: 'Browser session closed due to inactivity' });
-    }, AUTO_CLOSE_TIMEOUT);
-    
-    browserSessions.set(sessionId, {
-      browser,
-      browserServer,
-      lastActivity: Date.now(),
-      timeoutId
-    });
-    
-    // Send success response with connection details
-    send(ws, {
-      status: 'launched',
-      wsEndpoint,
-      sessionId
-    });
-  } catch (error) {
-    logger.error(`Error launching browser for session ${sessionId}:`, error);
-    sendError(ws, `Failed to launch browser: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-// Handle browser close request
-async function handleClose(ws: WebSocket, sessionId: string): Promise<void> {
-  try {
-    if (await cleanupSession(sessionId)) {
-      send(ws, { status: 'closed', sessionId });
-    } else {
-      sendError(ws, `No active session found with ID: ${sessionId}`);
+  for (const [browserType, session] of Object.entries(activeSessions)) {
+    if (session && now - session.lastUsed > AUTO_CLOSE_TIMEOUT) {
+      log('info', `Auto-closing inactive ${browserType} browser`, { 
+        id: session.id, 
+        idleTime: now - session.lastUsed 
+      });
+      
+      closeSession(browserType as 'chromium' | 'firefox' | 'webkit');
     }
-  } catch (error) {
-    logger.error(`Error closing browser for session ${sessionId}:`, error);
-    sendError(ws, `Failed to close browser: ${error instanceof Error ? error.message : String(error)}`);
   }
-}
+}, 10000); // Check every 10 seconds
 
-// Cleanup browser session resources
-async function cleanupSession(sessionId: string): Promise<boolean> {
-  const session = browserSessions.get(sessionId);
-  if (!session) return false;
-  
-  logger.info(`Cleaning up session ${sessionId}`);
-  
-  // Clear timeout if exists
-  if (session.timeoutId) {
-    clearTimeout(session.timeoutId);
-  }
-  
-  // Close browser
-  try {
-    if (session.browser) {
-      await session.browser.close();
-    }
-    if (session.browserServer) {
+// Close a browser session
+async function closeSession(browserType: 'chromium' | 'firefox' | 'webkit'): Promise<void> {
+  const session = activeSessions[browserType];
+  if (session) {
+    try {
       await session.browserServer.close();
+      log('info', `${browserType} browser server closed`, { id: session.id });
+    } catch (error) {
+      log('error', `Error closing ${browserType} browser server`, { id: session.id, error });
     }
-  } catch (error) {
-    logger.error(`Error while closing browser for session ${sessionId}:`, error);
-  }
-  
-  // Remove from sessions map
-  browserSessions.delete(sessionId);
-  return true;
-}
-
-// Helper to send success response
-function send(ws: WebSocket, data: ServerResponse): void {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(data));
-  }
-}
-
-// Helper to send error response
-function sendError(ws: WebSocket, message: string): void {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ status: 'error', message }));
+    
+    delete activeSessions[browserType];
   }
 }
 
 // Start server
 server.listen(PORT, () => {
-  logger.info(`Playwright browser server listening on port ${PORT}`);
-  logger.info(`Connect using: wss://your-host:${PORT}/playwright?token=YOUR_TOKEN`);
+  log('info', `Playwright browser server listening on port ${PORT}`);
+  log('info', `Connect using:`);
+  log('info', `  - Chromium: playwright.chromium.connect("ws://your-host:${PORT}/chromium/playwright?token=${AUTH_TOKEN}")`);
+  log('info', `  - Firefox: playwright.firefox.connect("ws://your-host:${PORT}/firefox/playwright?token=${AUTH_TOKEN}")`);
+  log('info', `  - WebKit: playwright.webkit.connect("ws://your-host:${PORT}/webkit/playwright?token=${AUTH_TOKEN}")`);
 });
+
+// Handle termination signals
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
+async function shutdown(): Promise<void> {
+  log('info', 'Shutting down server');
+  
+  // Close all browser sessions
+  for (const browserType of ['chromium', 'firefox', 'webkit'] as const) {
+    await closeSession(browserType);
+  }
+  
+  // Close server
+  server.close(() => {
+    log('info', 'Server shut down');
+    process.exit(0);
+  });
+}

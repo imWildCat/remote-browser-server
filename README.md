@@ -63,50 +63,37 @@ A token-authenticated Playwright server that allows remote control of browsers v
 
 ## API Usage
 
-### Client-Side Connection
+### Direct Connection (Recommended)
 
-Connect to the WebSocket server using:
+Connect directly to the browser using the Playwright API:
 
-```
-ws://your-server:3000/playwright?token=your-secret-token
-```
+```typescript
+// For Chromium (default)
+const browser = await playwright.chromium.connect(
+  'ws://your-server:3000/chromium/playwright?token=your-secret-token'
+);
 
-or for secure connections:
+// For Firefox
+const browser = await playwright.firefox.connect(
+  'ws://your-server:3000/firefox/playwright?token=your-secret-token'
+);
 
-```
-wss://your-server:3000/playwright?token=your-secret-token
-```
-
-### WebSocket Commands
-
-#### Launch Browser
-```javascript
-// Send
-{
-  "action": "launch"
-}
-
-// Receive
-{
-  "status": "launched",
-  "wsEndpoint": "ws://localhost:54321/playwright",
-  "sessionId": "12345-67890-abcdef"
-}
+// For WebKit
+const browser = await playwright.webkit.connect(
+  'ws://your-server:3000/webkit/playwright?token=your-secret-token'
+);
 ```
 
-#### Close Browser
-```javascript
-// Send
-{
-  "action": "close"
-}
+This approach is compatible with browserless.io and similar services.
 
-// Receive
-{
-  "status": "closed",
-  "sessionId": "12345-67890-abcdef"
-}
-```
+### Browser Types
+
+The server supports three browser types:
+- Chromium: `/chromium/playwright`
+- Firefox: `/firefox/playwright`
+- WebKit: `/webkit/playwright`
+
+Each browser type has its own endpoint, and you can connect to any of them using the appropriate Playwright API.
 
 ## Client Example
 
@@ -114,35 +101,30 @@ Here's a simple example of how to use the remote browser server with Playwright:
 
 ```typescript
 import { chromium } from 'playwright';
-import WebSocket from 'ws';
 
-// Connect to server with token authentication
-const ws = new WebSocket('ws://localhost:3000/playwright?token=your-secret-token');
-
-ws.on('open', () => {
-  // Request a browser instance
-  ws.send(JSON.stringify({ action: 'launch' }));
-});
-
-ws.on('message', async (message) => {
-  const data = JSON.parse(message.toString());
+async function main() {
+  // Connect directly to the remote browser
+  const browser = await chromium.connect(
+    'ws://localhost:3000/chromium/playwright?token=your-secret-token'
+  );
   
-  if (data.status === 'launched' && data.wsEndpoint) {
-    // Connect to the remote browser
-    const browser = await chromium.connect({ wsEndpoint: data.wsEndpoint });
+  try {
+    // Create a new page
     const page = await browser.newPage();
     
     // Use the page for automation
     await page.goto('https://example.com');
     await page.screenshot({ path: 'screenshot.png' });
     
-    // Close the browser connection
+    // Close the page
+    await page.close();
+  } finally {
+    // Always close the browser connection when done
     await browser.close();
-    
-    // Tell the server to close the browser
-    ws.send(JSON.stringify({ action: 'close' }));
   }
-});
+}
+
+main().catch(console.error);
 ```
 
 ## Project Structure
